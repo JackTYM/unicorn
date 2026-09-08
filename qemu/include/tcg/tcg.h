@@ -35,6 +35,37 @@
 #include "tcg-apple-jit.h"
 #include "qemu/int128.h"
 
+/*
+ * Split write/execute (splitwx) support, adapted from real upstream QEMU's own "splitwx"
+ * feature (tcg/region.c, tcg_splitwx_to_rw/_to_rx) for sogen's iOS device target, where TXM/SPTM
+ * blessing has been proven (through real device testing) to be tied to the exact virtual mapping
+ * a debugger-driven JIT26 blessing call returns -- never any other mapping of the same physical
+ * pages, including a writable remap of it. So on iOS device, Unicorn's TCG buffer is really two
+ * mappings of the same pages: an RX one (the JIT26-blessed pointer, genuinely executable) and an
+ * RW one (an ordinary writable remap of it, genuinely writable, but NOT executable no matter what
+ * mprotect() reports). sogen_tcg_splitwx_diff is `rx - rw`, set once at allocation time by
+ * sogen's own code (src/common/utils/ios_device_jit_mmap_shim.cpp, outside this submodule, tied
+ * together only at final link time) -- 0 on every other platform, making the two functions below
+ * pure identity and this entire mechanism a no-op everywhere except real iOS device.
+ *
+ * Unicorn itself is handed the RW pointer as "its" code_gen_buffer (matching what it already
+ * expects from mmap()), so every existing tcg_out_* write call site needs no changes at all.
+ * Only the few places that need a genuinely executable address -- the prologue's own entry point,
+ * a translation block's dispatch address, and a direct-jump patch site's target -- convert via
+ * tcg_splitwx_to_rx()/_to_rw().
+ */
+extern intptr_t sogen_tcg_splitwx_diff;
+
+static inline void *tcg_splitwx_to_rx(void *rw)
+{
+    return rw ? (void *)((uintptr_t)rw + sogen_tcg_splitwx_diff) : rw;
+}
+
+static inline void *tcg_splitwx_to_rw(void *rx)
+{
+    return rx ? (void *)((uintptr_t)rx - sogen_tcg_splitwx_diff) : rx;
+}
+
 /* XXX: make safe guess about sizes */
 #define MAX_OP_PER_INSTR 266
 

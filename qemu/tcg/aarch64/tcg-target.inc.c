@@ -1368,7 +1368,13 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_addr,
         i2 = I3401_ADDI | rt << 31 | (addr & 0xfff) << 10 | rd << 5 | rd;
     }
     pair = (uint64_t)i2 << 32 | i1;
-    atomic_set((uint64_t *)jmp_addr, pair);
+    /* tc_ptr/jmp_addr/addr are all genuinely executable (RX) dispatch addresses here -- the
+     * offset math above is correct as-is regardless (both a page-aligned splitwx diff and a
+     * relative-branch offset cancel out identically whether computed in RX- or RW-space), but the
+     * actual write below needs a writable address. flush_icache_range stays at the RX address,
+     * matching the one pattern proven to work under TXM/SPTM. A no-op conversion everywhere
+     * except real iOS device (see tcg.h's own comment on splitwx). */
+    atomic_set((uint64_t *)tcg_splitwx_to_rw((void *)jmp_addr), pair);
     flush_icache_range(jmp_addr, jmp_addr + 8);
 }
 

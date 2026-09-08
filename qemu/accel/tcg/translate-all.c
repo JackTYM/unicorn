@@ -1742,7 +1742,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     }
 
     gen_code_buf = tcg_ctx->code_gen_ptr;
-    tb->tc.ptr = gen_code_buf;
+    /* tb->tc.ptr is used later purely as a genuinely executable dispatch address (cpu_tb_exec(),
+     * tb_target_set_jmp_target()) -- see tcg.h's own comment on splitwx. gen_code_buf itself
+     * (used below for size/alignment bookkeeping against tcg_ctx->code_gen_ptr) is left
+     * unconverted on purpose. A no-op conversion everywhere except real iOS device. */
+    tb->tc.ptr = tcg_splitwx_to_rx(gen_code_buf);
     tb->pc = pc;
     tb->cs_base = cs_base;
     tb->flags = flags;

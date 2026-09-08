@@ -36,6 +36,12 @@
 
 #include <glib_compat.h>
 
+/* See tcg.h's own comment on sogen_tcg_splitwx_diff/tcg_splitwx_to_rx/_to_rw. 0 by default (a
+ * no-op) on every platform except real iOS device, where sogen's own code
+ * (src/common/utils/ios_device_jit_mmap_shim.cpp, outside this submodule) sets this once at TCG
+ * buffer allocation time. */
+intptr_t sogen_tcg_splitwx_diff;
+
 /* Note: the long term plan is to reduce the dependencies on the QEMU
    CPU definitions. Currently they are used for qemu_ld/st
    instructions */
@@ -859,7 +865,10 @@ void tcg_prologue_init(TCGContext *s)
     s->code_ptr = buf0;
     s->code_buf = buf0;
     s->data_gen_ptr = NULL;
-    s->code_gen_prologue = buf0;
+    /* code_gen_prologue is called directly from C (see tcg.h's tcg_qemu_tb_exec macro), so it
+     * must be a genuinely executable address -- see tcg.h's own comment on splitwx. A no-op
+     * everywhere except real iOS device (sogen_tcg_splitwx_diff is 0 elsewhere). */
+    s->code_gen_prologue = tcg_splitwx_to_rx(buf0);
 
     /* Compute a high-water mark, at which we voluntarily flush the buffer
        and start over.  The size here is arbitrary, significantly larger
@@ -882,7 +891,10 @@ void tcg_prologue_init(TCGContext *s)
 #endif
 
     buf1 = s->code_ptr;
-    flush_icache_range((uintptr_t)buf0, (uintptr_t)buf1);
+    /* Invalidate at the RX address, not the RW one written above -- matches the one pattern
+     * proven (via real device testing) to work under TXM/SPTM. A no-op conversion everywhere
+     * except real iOS device. */
+    flush_icache_range((uintptr_t)tcg_splitwx_to_rx(buf0), (uintptr_t)tcg_splitwx_to_rx(buf1));
 
     /* Deduct the prologue from the buffer.  */
     prologue_size = tcg_current_code_size(s);
