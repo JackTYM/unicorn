@@ -42,6 +42,22 @@
  * buffer allocation time. */
 intptr_t sogen_tcg_splitwx_diff;
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+/* Defined in tools/sogen-ios/Sources/JIT/DeviceJITLog.swift, part of the SogenIOS app target
+ * rather than this CMake target; tied together only at final link time inside the app's own
+ * Mach-O image, the same way src/common/utils/ios_device_jit_mmap_shim.cpp already relies on
+ * this exact symbol. Narrows down whether tcg_prologue_init()'s own internal prologue generation
+ * (as opposed to the external, hand-written-RET self-test in that shim) completes successfully.
+ */
+extern void sogen_jit26_device_log(const char *line);
+#define SOGEN_IOS_DEVICE_LOG(msg) sogen_jit26_device_log(msg)
+#else
+#define SOGEN_IOS_DEVICE_LOG(msg) do {} while (0)
+#endif
+
 /* Note: the long term plan is to reduce the dependencies on the QEMU
    CPU definitions. Currently they are used for qemu_ld/st
    instructions */
@@ -880,7 +896,9 @@ void tcg_prologue_init(TCGContext *s)
 #endif
 
     /* Generate the prologue.  */
+    SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_prologue_init: about to call tcg_target_qemu_prologue()");
     tcg_target_qemu_prologue(s);
+    SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_prologue_init: tcg_target_qemu_prologue() returned");
 
 #ifdef TCG_TARGET_NEED_POOL_LABELS
     /* Allow the prologue to put e.g. guest_base into a pool entry.  */
@@ -895,6 +913,7 @@ void tcg_prologue_init(TCGContext *s)
      * proven (via real device testing) to work under TXM/SPTM. A no-op conversion everywhere
      * except real iOS device. */
     flush_icache_range((uintptr_t)tcg_splitwx_to_rx(buf0), (uintptr_t)tcg_splitwx_to_rx(buf1));
+    SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_prologue_init: flush_icache_range() returned");
 
     /* Deduct the prologue from the buffer.  */
     prologue_size = tcg_current_code_size(s);
@@ -910,6 +929,8 @@ void tcg_prologue_init(TCGContext *s)
     if (TCG_TARGET_HAS_goto_ptr) {
         tcg_debug_assert(s->code_gen_epilogue != NULL);
     }
+
+    SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_prologue_init() returned successfully");
 }
 
 void tcg_func_start(TCGContext *s)
