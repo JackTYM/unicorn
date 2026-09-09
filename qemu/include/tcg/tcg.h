@@ -56,6 +56,21 @@
  */
 extern intptr_t sogen_tcg_splitwx_diff;
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+/* Defined in tools/sogen-ios/Sources/JIT/DeviceJITLog.swift, part of the SogenIOS app target
+ * rather than this CMake target; tied together only at final link time inside the app's own
+ * Mach-O image, the same way src/common/utils/ios_device_jit_mmap_shim.cpp already relies on
+ * this exact symbol. Shared here (rather than duplicated per .c file) so any file that already
+ * includes tcg.h can log real-device milestones without its own extern declaration. */
+extern void sogen_jit26_device_log(const char *line);
+#define SOGEN_IOS_DEVICE_LOG(msg) sogen_jit26_device_log(msg)
+#else
+#define SOGEN_IOS_DEVICE_LOG(msg) do {} while (0)
+#endif
+
 static inline void *tcg_splitwx_to_rx(void *rw)
 {
     return rw ? (void *)((uintptr_t)rw + sogen_tcg_splitwx_diff) : rw;

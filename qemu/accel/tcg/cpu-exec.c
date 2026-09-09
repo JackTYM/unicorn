@@ -57,7 +57,24 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
 
     UC_TRACE_START(UC_TRACE_TB_EXEC);
     tb_exec_lock(cpu->uc);
-    ret = tcg_qemu_tb_exec(env, tb_ptr);
+    /* tcg_prologue_init() only generates the prologue and flushes the icache -- it never
+     * executes anything itself. This call is the actual FIRST real jump into RX-converted,
+     * Unicorn-generated code (via the prologue, which then jumps to tb_ptr) on every platform,
+     * not just the first time overall; log only the very first call to avoid flooding, since
+     * this runs once per translation block for the guest's entire life. */
+    {
+        static bool sogen_logged_first_tb_exec;
+        bool sogen_is_first_tb_exec = !sogen_logged_first_tb_exec;
+        sogen_logged_first_tb_exec = true;
+        if (sogen_is_first_tb_exec) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_tb_exec: about to call tcg_qemu_tb_exec() for the "
+                                  "first time ever (the real jump into RX-converted, Unicorn-generated code)");
+        }
+        ret = tcg_qemu_tb_exec(env, tb_ptr);
+        if (sogen_is_first_tb_exec) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_tb_exec: tcg_qemu_tb_exec() returned for the first time ever");
+        }
+    }
     if (cpu->uc->nested_level == 1) {
         // Only unlock (allow writing to JIT area) if we are the outmost uc_emu_start
         tb_exec_unlock(cpu->uc);

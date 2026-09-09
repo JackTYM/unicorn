@@ -42,21 +42,8 @@
  * buffer allocation time. */
 intptr_t sogen_tcg_splitwx_diff;
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
-/* Defined in tools/sogen-ios/Sources/JIT/DeviceJITLog.swift, part of the SogenIOS app target
- * rather than this CMake target; tied together only at final link time inside the app's own
- * Mach-O image, the same way src/common/utils/ios_device_jit_mmap_shim.cpp already relies on
- * this exact symbol. Narrows down whether tcg_prologue_init()'s own internal prologue generation
- * (as opposed to the external, hand-written-RET self-test in that shim) completes successfully.
- */
-extern void sogen_jit26_device_log(const char *line);
-#define SOGEN_IOS_DEVICE_LOG(msg) sogen_jit26_device_log(msg)
-#else
-#define SOGEN_IOS_DEVICE_LOG(msg) do {} while (0)
-#endif
+/* SOGEN_IOS_DEVICE_LOG is defined in tcg.h (shared so other .c files that already include it,
+ * like cpu-exec.c, can log real-device milestones too without their own extern declaration). */
 
 /* Note: the long term plan is to reduce the dependencies on the QEMU
    CPU definitions. Currently they are used for qemu_ld/st
