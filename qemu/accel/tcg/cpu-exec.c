@@ -272,11 +272,34 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     uc_engine *uc = cpu->uc;
     struct list_item *cur;
     struct hook *hook;
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    static bool sogen_logged_tb_find_entry;
+    bool sogen_is_first_tb_find = !sogen_logged_tb_find_entry;
+    sogen_logged_tb_find_entry = true;
+    if (sogen_is_first_tb_find) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] tb_find: entered (first call)");
+    }
+#endif
 
     tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask);
     if (tb == NULL) {
         mmap_lock();
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+        if (sogen_is_first_tb_find) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] tb_find: about to call tb_gen_code() for the first time ever "
+                                  "(the guest's very first block, distinct from Unicorn's own prologue)");
+        }
+#endif
         tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+        if (sogen_is_first_tb_find) {
+            char sogen_line[128];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tb_find: tb_gen_code() returned for the first time ever, tb=%p tc.ptr=%p",
+                     (void *)tb, tb ? (void *)tb->tc.ptr : NULL);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+#endif
         mmap_unlock();
         /* We add the TB in the virtual pc hash table for the fast lookup */
         cpu->tb_jmp_cache[tb_jmp_cache_hash_func(cpu->uc, pc)] = tb;
