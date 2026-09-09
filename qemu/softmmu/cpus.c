@@ -85,16 +85,50 @@ static int tcg_cpu_exec(struct uc_struct *uc)
 {
     int r;
     bool finish = false;
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    static bool sogen_logged_tcg_cpu_exec_entry;
+    bool sogen_is_first_tcg_cpu_exec = !sogen_logged_tcg_cpu_exec_entry;
+    sogen_logged_tcg_cpu_exec_entry = true;
+    if (sogen_is_first_tcg_cpu_exec) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_cpu_exec: entered (first call)");
+    }
+#endif
 
     while (!uc->exit_request) {
         CPUState *cpu = uc->cpu;
 
         //qemu_clock_enable(QEMU_CLOCK_VIRTUAL,
         //                  (cpu->singlestep_enabled & SSTEP_NOTIMER) == 0);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+        /* Capped independently of sogen_is_first_tcg_cpu_exec: if cpu_can_run() keeps returning
+         * false forever (the exact "spins doing nothing, never reaches cpu_exec" scenario this
+         * is checking for), that flag never gets a chance to clear, so this needs its own limit
+         * to avoid flooding the log instead of just answering the question. */
+        static int sogen_can_run_log_count;
+        if (sogen_can_run_log_count < 5) {
+            sogen_can_run_log_count++;
+            char sogen_line[128];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tcg_cpu_exec: cpu_can_run() = %d (stop=%d stopped=%d halted=%d)",
+                     cpu_can_run(cpu), cpu->stop, cpu->stopped, cpu->halted);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+#endif
         if (cpu_can_run(cpu)) {
             uc->quit_request = false;
             uc->size_recur_mem = 0;
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+            if (sogen_is_first_tcg_cpu_exec) {
+                SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_cpu_exec: about to call cpu_exec() for the first time");
+            }
+#endif
             r = cpu_exec(uc, cpu);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+            if (sogen_is_first_tcg_cpu_exec) {
+                SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_cpu_exec: cpu_exec() returned for the first time");
+                sogen_is_first_tcg_cpu_exec = false;
+            }
+#endif
 
             // quit current TB but continue emulating?
             if (uc->quit_request && !uc->stop_request) {
@@ -206,17 +240,35 @@ static inline gboolean uc_exit_invalidate_iter(gpointer key, gpointer val, gpoin
 void resume_all_vcpus(struct uc_struct* uc)
 {
     CPUState *cpu = uc->cpu;
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    static bool sogen_logged_resume_all_vcpus;
+    bool sogen_is_first_resume_all_vcpus = !sogen_logged_resume_all_vcpus;
+    sogen_logged_resume_all_vcpus = true;
+    if (sogen_is_first_resume_all_vcpus) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] resume_all_vcpus: entered (first call)");
+    }
+#endif
     cpu->halted = 0;
     cpu->exit_request = 0;
     cpu->exception_index = -1;
     cpu_resume(cpu);
     /* static void qemu_tcg_cpu_loop(struct uc_struct *uc) */
     cpu->created = true;
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    if (sogen_is_first_resume_all_vcpus) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] resume_all_vcpus: about to call tcg_cpu_exec() for the first time");
+    }
+#endif
     while (true) {
         if (tcg_cpu_exec(uc)) {
             break;
         }
     }
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    if (sogen_is_first_resume_all_vcpus) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] resume_all_vcpus: tcg_cpu_exec() loop returned for the first time");
+    }
+#endif
 
     // clear the cache of the exits address, since the generated code
     // at that address is to exit emulation, but not for the instruction there.

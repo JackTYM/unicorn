@@ -31,6 +31,19 @@
 #include "qemu/include/qemu/queue.h"
 #include "qemu-common.h"
 
+/* Real-device iOS JIT diagnosis only; see qemu/include/tcg/tcg.h's own copy of this same macro
+ * for the full explanation (this file doesn't include tcg.h, so it gets its own declaration
+ * rather than pulling that whole header in just for this). */
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+extern void sogen_jit26_device_log(const char *line);
+#define SOGEN_IOS_DEVICE_LOG(msg) sogen_jit26_device_log(msg)
+#else
+#define SOGEN_IOS_DEVICE_LOG(msg) do {} while (0)
+#endif
+
 static void clear_deleted_hooks(uc_engine *uc);
 static uc_err uc_snapshot(uc_engine *uc);
 static uc_err uc_restore_latest_snapshot(uc_engine *uc);
@@ -1084,6 +1097,14 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
 {
     uc_err err;
 
+    {
+        static bool sogen_logged_emu_start_entry;
+        if (!sogen_logged_emu_start_entry) {
+            sogen_logged_emu_start_entry = true;
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] uc_emu_start: entered (first call)");
+        }
+    }
+
     // reset the counter
     uc->emu_counter = 0;
     uc->invalid_error = UC_ERR_OK;
@@ -1231,7 +1252,18 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
         enable_emu_timer(uc, timeout * 1000); // microseconds -> nanoseconds
     }
 
-    uc->vm_start(uc);
+    {
+        static bool sogen_logged_vm_start_call;
+        bool sogen_is_first_vm_start = !sogen_logged_vm_start_call;
+        sogen_logged_vm_start_call = true;
+        if (sogen_is_first_vm_start) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] uc_emu_start: about to call uc->vm_start()");
+        }
+        uc->vm_start(uc);
+        if (sogen_is_first_vm_start) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] uc_emu_start: uc->vm_start() returned");
+        }
+    }
 
     uc->nested_level--;
 

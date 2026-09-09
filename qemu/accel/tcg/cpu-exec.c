@@ -572,10 +572,29 @@ int cpu_exec(struct uc_struct *uc, CPUState *cpu)
     CPUClass *cc = CPU_GET_CLASS(cpu);
     int ret;
     // SyncClocks sc = { 0 };
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    static bool sogen_logged_cpu_exec_entry;
+    bool sogen_is_first_cpu_exec = !sogen_logged_cpu_exec_entry;
+    sogen_logged_cpu_exec_entry = true;
+    if (sogen_is_first_cpu_exec) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_exec: entered (first call), before anything else");
+    }
+#endif
 
     if (cpu_handle_halt(cpu)) {
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+        if (sogen_is_first_cpu_exec) {
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_exec: cpu_handle_halt() returned true -- "
+                                  "returning EXCP_HALTED immediately, never reaching tb dispatch");
+        }
+#endif
         return EXCP_HALTED;
     }
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    if (sogen_is_first_cpu_exec) {
+        SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_exec: cpu_handle_halt() returned false, continuing");
+    }
+#endif
 
     // rcu_read_lock();
 
