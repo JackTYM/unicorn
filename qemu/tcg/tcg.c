@@ -3795,8 +3795,17 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     //tcg_dump_ops(s, false, "after opt4:");
     tcg_reg_alloc_start(s);
 
-    s->code_buf = tb->tc.ptr;
-    s->code_ptr = tb->tc.ptr;
+    /* FOUND BUG: tb->tc.ptr is the RX-converted dispatch address (see translate-all.c's
+     * tb_gen_code(), which sets it via tcg_splitwx_to_rx() specifically so cpu_tb_exec() and
+     * tb_target_set_jmp_target() get a genuinely executable address). But every tcg_out_*
+     * emission function below writes through s->code_buf/s->code_ptr -- so without converting
+     * back to RW here, this real code generation write targets the same unwritable RX pointer
+     * tcg_prologue_init() never used (it wrote through the RW base directly, never through
+     * tb->tc.ptr, which is exactly why the prologue's own write succeeded while every real
+     * guest block's first tcg_out_* write silently faulted, forever, under the never-detached
+     * debugger). A no-op conversion everywhere except real iOS device. */
+    s->code_buf = tcg_splitwx_to_rw(tb->tc.ptr);
+    s->code_ptr = tcg_splitwx_to_rw(tb->tc.ptr);
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);
@@ -3902,7 +3911,10 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     }
 
     /* flush instruction cache */
-    flush_icache_range((uintptr_t)s->code_buf, (uintptr_t)s->code_ptr);
+    /* Invalidate at the RX addresses, not the RW ones just written above -- matches the one
+     * pattern proven (via real device testing) to work under TXM/SPTM (see tcg_prologue_init()'s
+     * own identical fix). A no-op conversion everywhere except real iOS device. */
+    flush_icache_range((uintptr_t)tcg_splitwx_to_rx(s->code_buf), (uintptr_t)tcg_splitwx_to_rx(s->code_ptr));
 
     return tcg_current_code_size(s);
 }
