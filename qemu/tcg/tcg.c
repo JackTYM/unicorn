@@ -3913,8 +3913,36 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     /* flush instruction cache */
     /* Invalidate at the RX addresses, not the RW ones just written above -- matches the one
      * pattern proven (via real device testing) to work under TXM/SPTM (see tcg_prologue_init()'s
-     * own identical fix). A no-op conversion everywhere except real iOS device. */
+     * own identical fix). A no-op conversion everywhere except real iOS device. This is the ONLY
+     * flush_icache_range() call site for a real per-block translation (confirmed by grep across
+     * translate-all.c and tcg.c) -- logged explicitly with its real addresses/size, since this
+     * specific call had no visibility before, unlike tcg_prologue_init()'s already-logged one. */
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_block_icache_flush;
+        if (!sogen_logged_block_icache_flush) {
+            sogen_logged_block_icache_flush = true;
+            void *sogen_rx_start = tcg_splitwx_to_rx(s->code_buf);
+            void *sogen_rx_end = tcg_splitwx_to_rx(s->code_ptr);
+            char sogen_line[160];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tcg_gen_code: about to flush_icache_range(%p, %p) (%ld bytes, RX addresses) "
+                     "for this real block",
+                     sogen_rx_start, sogen_rx_end, (long)((uintptr_t)sogen_rx_end - (uintptr_t)sogen_rx_start));
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+    }
+#endif
     flush_icache_range((uintptr_t)tcg_splitwx_to_rx(s->code_buf), (uintptr_t)tcg_splitwx_to_rx(s->code_ptr));
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_block_icache_flush_done;
+        if (!sogen_logged_block_icache_flush_done) {
+            sogen_logged_block_icache_flush_done = true;
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] tcg_gen_code: flush_icache_range() for this real block returned");
+        }
+    }
+#endif
 
     return tcg_current_code_size(s);
 }

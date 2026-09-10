@@ -67,6 +67,21 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
         bool sogen_is_first_tb_exec = !sogen_logged_first_tb_exec;
         sogen_logged_first_tb_exec = true;
         if (sogen_is_first_tb_exec) {
+            /* Cross-references tb_ptr against sogen_tcg_splitwx_diff and code_gen_prologue (a
+             * known-good RX address, already proven executable) to directly verify tb_ptr falls
+             * within the same RX region, plus a hex dump of the first bytes so a garbage/
+             * uninitialized read can be told apart from a genuinely unexecutable-but-valid-
+             * looking address. */
+            uint8_t *sogen_bytes = (uint8_t *)tb_ptr;
+            char sogen_line[192];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] cpu_tb_exec: tb_ptr=%p code_gen_prologue=%p splitwx_diff=%ld first16bytes="
+                     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+                     (void *)tb_ptr, cpu->uc->tcg_ctx->code_gen_prologue, (long)sogen_tcg_splitwx_diff,
+                     sogen_bytes[0], sogen_bytes[1], sogen_bytes[2], sogen_bytes[3], sogen_bytes[4], sogen_bytes[5],
+                     sogen_bytes[6], sogen_bytes[7], sogen_bytes[8], sogen_bytes[9], sogen_bytes[10],
+                     sogen_bytes[11], sogen_bytes[12], sogen_bytes[13], sogen_bytes[14], sogen_bytes[15]);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
             SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_tb_exec: about to call tcg_qemu_tb_exec() for the "
                                   "first time ever (the real jump into RX-converted, Unicorn-generated code)");
         }
