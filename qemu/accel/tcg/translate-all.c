@@ -1760,7 +1760,30 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_ctx->cpu = env_cpu(env);
     UC_TRACE_START(UC_TRACE_TB_TRANS);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_decode_start;
+        if (!sogen_logged_decode_start) {
+            sogen_logged_decode_start = true;
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] tb_gen_code: about to call gen_intermediate_code() "
+                                  "(x86 decode, first real guest block)");
+        }
+    }
+#endif
     gen_intermediate_code(cpu, tb, max_insns);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_decode_done;
+        if (!sogen_logged_decode_done) {
+            sogen_logged_decode_done = true;
+            char sogen_line[128];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tb_gen_code: gen_intermediate_code() returned (decode done, icount=%d)",
+                     tb->icount);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+    }
+#endif
     UC_TRACE_END(UC_TRACE_TB_TRANS, "[uc] translate tb 0x%" PRIx64 ": ", tb->pc);
     tcg_ctx->cpu = NULL;
 
@@ -1776,7 +1799,29 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         tcg_ctx->tb_jmp_target_addr = tb->jmp_target_arg;
     }
 
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_emission_start;
+        if (!sogen_logged_emission_start) {
+            sogen_logged_emission_start = true;
+            SOGEN_IOS_DEVICE_LOG("[jit26-device] tb_gen_code: about to call tcg_gen_code() "
+                                  "(AArch64 emission, first real guest block)");
+        }
+    }
+#endif
     gen_code_size = tcg_gen_code(tcg_ctx, tb);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_emission_done;
+        if (!sogen_logged_emission_done) {
+            sogen_logged_emission_done = true;
+            char sogen_line[128];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tb_gen_code: tcg_gen_code() returned, gen_code_size=%d", gen_code_size);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+    }
+#endif
     if (unlikely(gen_code_size < 0)) {
         switch (gen_code_size) {
         case -1:
@@ -1811,6 +1856,20 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         }
     }
     search_size = encode_search(cpu->uc, tb, (uint8_t *)gen_code_buf + gen_code_size);
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    {
+        static bool sogen_logged_encode_search_done;
+        if (!sogen_logged_encode_search_done) {
+            sogen_logged_encode_search_done = true;
+            char sogen_line[128];
+            snprintf(sogen_line, sizeof(sogen_line),
+                     "[jit26-device] tb_gen_code: encode_search() returned, search_size=%d (post-emission "
+                     "bookkeeping done)",
+                     search_size);
+            SOGEN_IOS_DEVICE_LOG(sogen_line);
+        }
+    }
+#endif
     if (unlikely(search_size < 0)) {
         goto buffer_overflow;
     }
