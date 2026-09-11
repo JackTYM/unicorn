@@ -82,6 +82,39 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
                      sogen_bytes[6], sogen_bytes[7], sogen_bytes[8], sogen_bytes[9], sogen_bytes[10],
                      sogen_bytes[11], sogen_bytes[12], sogen_bytes[13], sogen_bytes[14], sogen_bytes[15]);
             SOGEN_IOS_DEVICE_LOG(sogen_line);
+            /* Correlates the actual fixed, wrong branch target seen on real device
+             * (0xf58c0f70, well under 4GB, nowhere near any RX/RW JIT address above) against
+             * every other pointer already in scope here: env (CPUArchState*), itb (the
+             * TranslationBlock struct's own heap address), and itb->pc (the GUEST address --
+             * "EIP + CS base" per exec-all.h -- this block begins at). A match against itb->pc
+             * in particular would mean the guest's own address is ending up in the register the
+             * prologue branches on instead of the real host tb_ptr. */
+            char sogen_correlation_line[160];
+            snprintf(sogen_correlation_line, sizeof(sogen_correlation_line),
+                     "[jit26-device] cpu_tb_exec: env=%p itb=%p itb->pc=0x%llx",
+                     (void *)env, (void *)itb, (unsigned long long)itb->pc);
+            SOGEN_IOS_DEVICE_LOG(sogen_correlation_line);
+            /* Raw bytes of the prologue itself (not tb_ptr's block) -- tcg_target_qemu_prologue()
+             * (tcg-target.inc.c) emits, in order: STP FP,LR,[SP,#-PUSH_SIZE]!; MOV FP,SP; five
+             * STPs saving x19..x27; SUB SP,SP,#(FRAME_SIZE-PUSH_SIZE); MOV X19(AREG0),X0; BR X1
+             * -- 11 instructions, 44 bytes; 64 bytes gives margin. Dumped as a real device-side
+             * byte capture (not source-level inference) so the MOV/BR encoding at the very end
+             * can be verified against the real disassembly rather than assumed. */
+            {
+                const uint8_t *sogen_prologue_bytes = (const uint8_t *)cpu->uc->tcg_ctx->code_gen_prologue;
+                char sogen_prologue_hex[192];
+                size_t sogen_prologue_hex_len = 0;
+                for (size_t sogen_i = 0; sogen_i < 64; sogen_i++) {
+                    sogen_prologue_hex_len += (size_t)snprintf(
+                        sogen_prologue_hex + sogen_prologue_hex_len,
+                        sizeof(sogen_prologue_hex) - sogen_prologue_hex_len, "%02x",
+                        sogen_prologue_bytes[sogen_i]);
+                }
+                char sogen_prologue_line[256];
+                snprintf(sogen_prologue_line, sizeof(sogen_prologue_line),
+                         "[jit26-device] cpu_tb_exec: code_gen_prologue 64 bytes=%s", sogen_prologue_hex);
+                SOGEN_IOS_DEVICE_LOG(sogen_prologue_line);
+            }
             SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_tb_exec: about to call tcg_qemu_tb_exec() for the "
                                   "first time ever (the real jump into RX-converted, Unicorn-generated code)");
         }
