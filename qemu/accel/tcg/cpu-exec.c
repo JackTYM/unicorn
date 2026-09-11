@@ -33,6 +33,24 @@
 #include <pthread.h>
 #endif
 
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+/* A fourth JIT26 "syscall" (see Sources/JIT/JIT26.c's jit26_detach/jit26_prepare_region for the
+ * existing x16=0/x16=1 pattern this copies) used purely to give universal.js a real trap to catch
+ * right before the first real tcg_qemu_tb_exec() call -- nothing else in that call chain executes
+ * a brk, so without this there is no way to make the debugger single-step through it; it can only
+ * ever react to an actual trap. universal.js's legacyCommands[0xf00d] dispatch already advances PC
+ * past this brk (P20=pc+4) before invoking the handler, so execution resumes exactly at the real
+ * tcg_qemu_tb_exec() call site below, just with the debugger now primed to single-step instead of
+ * blindly continuing. x16=3 is not used by any other command in this fork or upstream StikJIT. */
+__attribute__((noinline, optnone, naked)) static void sogen_jit26_begin_step_trace(void)
+{
+    __asm__(
+        "mov x16, #3\n"
+        "brk #0xf00d\n"
+        "ret\n");
+}
+#endif
+
 /* -icount align implementation. */
 
 typedef struct SyncClocks {
@@ -137,6 +155,9 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
             }
             SOGEN_IOS_DEVICE_LOG("[jit26-device] cpu_tb_exec: about to call tcg_qemu_tb_exec() for the "
                                   "first time ever (the real jump into RX-converted, Unicorn-generated code)");
+#if defined(__APPLE__) && TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+            sogen_jit26_begin_step_trace();
+#endif
         }
         ret = tcg_qemu_tb_exec(env, tb_ptr);
         if (sogen_is_first_tb_exec) {
