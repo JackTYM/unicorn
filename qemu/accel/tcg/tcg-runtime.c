@@ -157,7 +157,15 @@ void *HELPER(lookup_tb_ptr)(CPUArchState *env)
 
     tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, curr_cflags());
     if (tb == NULL) {
-        return uc->tcg_ctx->code_gen_epilogue;
+        /* code_gen_epilogue is stored RW (see tcg_target_qemu_prologue(), aarch64
+         * tcg-target.inc.c) because its only other use (INDEX_op_exit_tb's generation-time
+         * tcg_out_goto_long() call) needs it RW-self-consistent with s->code_ptr at that point --
+         * but this return value becomes the register INDEX_op_goto_ptr branches on directly, an
+         * absolute runtime target with no relative math to cancel the RW/RX difference, so it
+         * needs converting here specifically, the same "convert exactly where a genuinely
+         * executable address is needed" pattern as every other tcg_splitwx_to_rx() call site. A
+         * no-op everywhere sogen_tcg_splitwx_diff is 0 (every platform except real iOS device). */
+        return tcg_splitwx_to_rx(uc->tcg_ctx->code_gen_epilogue);
     }
     return tb->tc.ptr;
 }
