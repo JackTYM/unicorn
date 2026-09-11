@@ -29,6 +29,10 @@
 #include "sysemu/cpus.h"
 #include "uc_priv.h"
 
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
+
 /* -icount align implementation. */
 
 typedef struct SyncClocks {
@@ -94,6 +98,22 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
                      "[jit26-device] cpu_tb_exec: env=%p itb=%p itb->pc=0x%llx",
                      (void *)env, (void *)itb, (unsigned long long)itb->pc);
             SOGEN_IOS_DEVICE_LOG(sogen_correlation_line);
+#ifdef __APPLE__
+            /* Static analysis of the actual compiled call site and the actual on-device
+             * code_gen_prologue bytes both proved x1/tb_ptr is correct at the BR instruction --
+             * so the repeatable 0xf0e80f70-class fault this thread's own dispatch was thought to
+             * hit may not be happening on this thread at all. universal.js's continue loop
+             * watches every thread in the process (vAttach is process-wide, plain "c" resumes
+             * all threads); logging this thread's own mach port here lets it be compared directly
+             * against whatever tid the next fault's stop-reply reports. */
+            {
+                char sogen_thread_line[96];
+                snprintf(sogen_thread_line, sizeof(sogen_thread_line),
+                         "[jit26-device] cpu_tb_exec: this thread's mach port = 0x%x",
+                         (unsigned int)pthread_mach_thread_np(pthread_self()));
+                SOGEN_IOS_DEVICE_LOG(sogen_thread_line);
+            }
+#endif
             /* Raw bytes of the prologue itself (not tb_ptr's block) -- tcg_target_qemu_prologue()
              * (tcg-target.inc.c) emits, in order: STP FP,LR,[SP,#-PUSH_SIZE]!; MOV FP,SP; five
              * STPs saving x19..x27; SUB SP,SP,#(FRAME_SIZE-PUSH_SIZE); MOV X19(AREG0),X0; BR X1
