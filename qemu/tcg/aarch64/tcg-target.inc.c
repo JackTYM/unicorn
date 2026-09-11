@@ -1056,12 +1056,22 @@ static void tcg_out_movi(TCGContext *s, TCGType type, TCGReg rd,
     /* Look for host pointer values within 4G of the PC.  This happens
        often when loading pointers to QEMU's own data structures.  */
     if (type == TCG_TYPE_I64) {
-        tcg_target_long disp = value - (intptr_t)s->code_ptr;
+        /* ADR/ADRP are PC-relative: the CPU evaluates them against wherever it actually fetches
+         * this instruction from at runtime, which on real iOS device is the RX side of the
+         * splitwx pair, not s->code_ptr (the RW write cursor tcg_out_* normally works through --
+         * see tcg.h's own comment on tcg_splitwx_to_rx/_to_rw). Using s->code_ptr directly here
+         * computes a displacement relative to the wrong base, landing ADRP on the wrong page
+         * while the subsequent ADDI's own immediate (value & 0xfff) stays correct -- exactly the
+         * "identical low 12 bits, wrong high bits, varying per ASLR'd run" signature real device
+         * testing traced this to. A no-op everywhere sogen_tcg_splitwx_diff is 0 (every platform
+         * except real iOS device), same as every other tcg_splitwx_to_rx() call site. */
+        intptr_t sogen_rx_code_ptr = (intptr_t)tcg_splitwx_to_rx((void *)s->code_ptr);
+        tcg_target_long disp = value - sogen_rx_code_ptr;
         if (disp == sextract64(disp, 0, 21)) {
             tcg_out_insn(s, 3406, ADR, rd, disp);
             return;
         }
-        disp = (value >> 12) - ((intptr_t)s->code_ptr >> 12);
+        disp = (value >> 12) - (sogen_rx_code_ptr >> 12);
         if (disp == sextract64(disp, 0, 21)) {
             tcg_out_insn(s, 3406, ADRP, rd, disp);
             if (value & 0xfff) {

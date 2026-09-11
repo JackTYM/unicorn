@@ -95,15 +95,27 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
              * uninitialized read can be told apart from a genuinely unexecutable-but-valid-
              * looking address. */
             uint8_t *sogen_bytes = (uint8_t *)tb_ptr;
-            char sogen_line[192];
+            char sogen_line[128];
             snprintf(sogen_line, sizeof(sogen_line),
-                     "[jit26-device] cpu_tb_exec: tb_ptr=%p code_gen_prologue=%p splitwx_diff=%ld first16bytes="
-                     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-                     (void *)tb_ptr, cpu->uc->tcg_ctx->code_gen_prologue, (long)sogen_tcg_splitwx_diff,
-                     sogen_bytes[0], sogen_bytes[1], sogen_bytes[2], sogen_bytes[3], sogen_bytes[4], sogen_bytes[5],
-                     sogen_bytes[6], sogen_bytes[7], sogen_bytes[8], sogen_bytes[9], sogen_bytes[10],
-                     sogen_bytes[11], sogen_bytes[12], sogen_bytes[13], sogen_bytes[14], sogen_bytes[15]);
+                     "[jit26-device] cpu_tb_exec: tb_ptr=%p code_gen_prologue=%p splitwx_diff=%ld",
+                     (void *)tb_ptr, cpu->uc->tcg_ctx->code_gen_prologue, (long)sogen_tcg_splitwx_diff);
             SOGEN_IOS_DEVICE_LOG(sogen_line);
+            /* Single-step tracing (a prior round) pinpointed the divergence to the instruction at
+             * tb_ptr+0x2c -- dump 64 bytes (not just the first 16) so that exact offset, and
+             * several instructions around it, are covered for real disassembly. */
+            {
+                char sogen_tb_hex[192];
+                size_t sogen_tb_hex_len = 0;
+                for (size_t sogen_i = 0; sogen_i < 64; sogen_i++) {
+                    sogen_tb_hex_len += (size_t)snprintf(sogen_tb_hex + sogen_tb_hex_len,
+                                                          sizeof(sogen_tb_hex) - sogen_tb_hex_len, "%02x",
+                                                          sogen_bytes[sogen_i]);
+                }
+                char sogen_tb_line[256];
+                snprintf(sogen_tb_line, sizeof(sogen_tb_line), "[jit26-device] cpu_tb_exec: tb_ptr 64 bytes=%s",
+                         sogen_tb_hex);
+                SOGEN_IOS_DEVICE_LOG(sogen_tb_line);
+            }
             /* Correlates the actual fixed, wrong branch target seen on real device
              * (0xf58c0f70, well under 4GB, nowhere near any RX/RW JIT address above) against
              * every other pointer already in scope here: env (CPUArchState*), itb (the
